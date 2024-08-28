@@ -50,15 +50,51 @@
 - GitHub
 - Django
 
-1. Initialize the GitHub repository
-    - pip freeze > requirements.txt
-    - git init .
-    - create the github repository
-    - git remote add origin <remote_repository_url>
-    - git pull origin main
-    - git push -u origin main
+1. Initialize the remote repo with a `.gitignore` file
 
-2. Setup EC2:
+2. Clone to local:
+
+    ```shell
+    git clone <link to repository>
+    ```
+
+3. Create and activate virtual environment:
+
+    ```shell
+    # Linux
+    # Create virtual environment
+    python3 -m venv .venv --prompt web-app
+
+    # Activate virtual environment
+    source .venv/bin/activate
+    ```
+
+    ```shell
+    # Windows/Powershell
+    python -m venv .venv
+
+    .venv\Scripts\activate
+    ```
+
+4. Install Django
+
+    ```shell
+    pip install Django
+    ```
+
+5. Create requirements file:
+
+    ```shell
+    pip freeze > requirements.txt
+    ```
+
+6. Create a django project:
+
+    ```shell
+    django-admin startproject config .
+    ```
+
+7. Setup EC2:
     - Create EC2 with Ubuntu
     - Allow traffic to port 8080 & 8000 (Inbound rules)
     - Install Jenkins
@@ -82,6 +118,9 @@
         sudo systemctl status jenkins
         ```
         - Configure the Jenkins Server
+        - Navigate to `http://<your-ec2-public-ip-address>:8080`
+        - Run `sudo cat /var/lib/jenkins/secrets/initialAdminPassword` to get the admin password
+        - Follow the prompts to a new admin user
 
     - Install Docker
 
@@ -114,14 +153,18 @@
         sudo usermod -aG docker $USER
 
         # Create username and password for DockerHub
-        docker login
+        docker login -u <username>
+
+        # Give permissions for docker socket file
+        sudo chmod 666 /var/run/docker.sock
+        sudo usermod -aG docker $USER
         ```
 
     - Create Dockerfile on local repository
 
         ```
-        # Use Python 3.9 as the base image
-        FROM python:3.9
+        # Use Python 3.11 as the base image
+        FROM python:3.11
 
         # Set the working directory within the container
         WORKDIR /app/test-app
@@ -142,10 +185,14 @@
         RUN python manage.py migrate
 
         # Run the Django application
-        CMD python /app/test-app/manage.py runserver 0.0.0.0:8000
+        CMD ["python", "/app/test-app/manage.py", "runserver", "0.0.0.0:8000"]
         ```
+        - Push changes to remote repo
 
     - Clone the app repository to EC2
+      ```shell
+      git clone <link to your repo>
+      ```
 
     - Navigate into the app directory
     - build a docker container
@@ -160,13 +207,27 @@
         docker run -d -p 8000:8000 test-app:latest
         ```
 
-3. Configure Jenkins Pipeline
+8. Configure Jenkins Pipeline
 
     - add docker user to the jenkins group
         ```shell
         sudo usermod -aG docker jenkins
         ```
+   - Create Docker Hub Personal Access Token:
+       - Sign in to your Docker account.
 
+       - Select your avatar in the top-right corner and from the drop-down menu select Account settings.
+
+       - In the Security section, select Personal access tokens.
+
+       - Select Generate new token.
+
+       - Add a description for your token. Use something that indicates the use case or purpose of the token.
+
+       - Set the access permissions. The access permissions are scopes that set restrictions in your repositories. For example, for Read & Write permissions, an automation pipeline can build an image and then push it to a repository. However, it can't delete the repository.
+
+       - Select Generate and then copy the token that appears on the screen and save it. You won't be able to retrieve the token once you close this prompt.
+         
     - In the Jenkins dashboard:
         - select "Manage Jenkins"
         - Under the Security section select "Credentials"
@@ -174,7 +235,8 @@
         - Click on "Global credentials (unrestricted)"
         - Click Add credentials:
             - Kind: Username with password
-            - Enter the username and password for your Docker account
+            - Enter the username for your Docker account
+            - For password enter the Personal Access Token you created earlier
             - Enter ID as "dockerHub"
 
     - Create a jenkins job
@@ -186,7 +248,11 @@
             - Choose github project and enter the repository URL
             - Set build triggers - GitHub hook trigger for GITscm polling
             - Under pipeline:
-                - select pipeline script for definition
+                - select "Pipeline script from SCM" for definition
+                - Select Git under SCM
+                - Add the repository URL
+                - Ensure Branch specifier has the correct value
+            - Create `Jenkinsfile` in local repository and add the following code:
                 ```
                 pipeline {
                     agent any
@@ -227,24 +293,24 @@
                 }
                 ```
 
-4. Create the docker-compose.yml
+9. Create the docker-compose.yml
 
     ```yaml
-    version: "beta"
+    version: "3.3"
     services:
       web: 
-        image: masondci/test-app:latest
+        image: <your docker username>/test-app:latest
         ports:
           - "8000:8000" 
     ```
 
-4. Create a github webhook
+10. Create a github webhook
     - under repository settings
     - select "Webhooks"
-    - Enter payload URL http://<your-EC2-ip-address>:8080/github-webhook/
+    - Enter payload URL `http://<your EC2 ip address>:8080/github-webhook/`
     - Under content type select "application/x-www-form-urlencoded"
     - Select "Send me everything"
     - Ensure that "Active" is checked
     - Click on "Add Webhook"
 
-5. Test the CI/CD Pipeline
+11. Test the CI/CD Pipeline
